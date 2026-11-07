@@ -32,7 +32,10 @@ def run_graphql(query, variables):
         json={"query": query, "variables": variables}
     )
     resp.raise_for_status()
-    return resp.json()
+    payload = resp.json()
+    if "errors" in payload:
+        raise RuntimeError(f"GraphQL error: {payload['errors']}")
+    return payload
 
 
 def fetch_commits(owner, repo, state_file: Path):
@@ -89,14 +92,8 @@ def fetch_commits(owner, repo, state_file: Path):
     return all_nodes
 
 
-def fetch_issues_and_prs(owner, repo, state_file: Path):
-    since = "2020-01-01T00:00:00Z"
-    if state_file.exists():
-        since = state_file.read_text().strip()
-
-    now_iso = datetime.utcnow().isoformat() + "Z"
-
-    issue_query = """
+def paginate_issues(owner, repo, since):
+    query = """
     query($o: String!, $r: String!, $since: String!, $cursor: String) {
       repository(owner: $o, name: $r) {
         issues(
@@ -127,8 +124,20 @@ def fetch_issues_and_prs(owner, repo, state_file: Path):
       }
     }
     """
+    items = []
+    cur = None
+    while True:
+        res = run_graphql(query, {"o": owner, "r": repo, "since": since, "cursor": cur})
+        chunk = res["data"]["repository"]["issues"]
+        items.extend(chunk["nodes"])
+        if not chunk["pageInfo"]["hasNextPage"]:
+            break
+        cur = chunk["pageInfo"]["endCursor"]
+    return items
 
-    pr_query = """
+
+def paginate_prs(owner, repo, since):
+    query = """
     query($o: String!, $r: String!, $since: String!, $cursor: String) {
       repository(owner: $o, name: $r) {
         pullRequests(
@@ -160,21 +169,26 @@ def fetch_issues_and_prs(owner, repo, state_file: Path):
       }
     }
     """
+    items = []
+    cur = None
+    while True:
+        res = run_graphql(query, {"o": owner, "r": repo, "since": since, "cursor": cur})
+        chunk = res["data"]["repository"]["pullRequests"]
+        items.extend(chunk["nodes"])
+        if not chunk["pageInfo"]["hasNextPage"]:
+            break
+        cur = chunk["pageInfo"]["endCursor"]
+    return items
 
-    def paginate(q):
-        items = []
-        cur = None
-        while True:
-            res = run_graphql(q, {"o": owner, "r": repo, "since": since, "cursor": cur})
-            chunk = res["data"]["repository"][q.split("(")[0]]
-            items.extend(chunk["nodes"])
-            if not chunk["pageInfo"]["hasNextPage"]:
-                break
-            cur = chunk["pageInfo"]["endCursor"]
-        return items
 
-    issues = paginate(issue_query)
-    prs = paginate(pr_query)
+def fetch_issues_and_prs(owner, repo, state_file: Path):
+    since = "2020-01-01T00:00:00Z"
+    if state_file.exists():
+        since = state_file.read_text().strip()
+
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    issues = paginate_issues(owner, repo, since)
+    prs = paginate_prs(owner, repo, since)
     state_file.write_text(now_iso)
     return issues, prs
 
