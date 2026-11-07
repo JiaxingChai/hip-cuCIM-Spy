@@ -79,7 +79,10 @@ def fetch_commits(owner, repo, state_file: Path):
     cursor = None
     while True:
         data = run_graphql(query, {"o": owner, "r": repo, "cursor": cursor})
-        hist = data["data"]["repository"]["ref"]["target"]["history"]
+        ref_obj = data["data"]["repository"]["ref"]
+        if ref_obj is None:
+            break
+        hist = ref_obj["target"]["history"]
         all_nodes.extend(hist["nodes"])
         if not hist["pageInfo"]["hasNextPage"]:
             break
@@ -88,20 +91,14 @@ def fetch_commits(owner, repo, state_file: Path):
     if all_nodes:
         new_tip = all_nodes[0]["oid"]
         state_file.write_text(new_tip)
-
     return all_nodes
 
 
-def paginate_issues(owner, repo, since):
+def paginate_all_issues(owner, repo):
     query = """
-    query($o: String!, $r: String!, $since: String!, $cursor: String) {
+    query($o: String!, $r: String!, $cursor: String) {
       repository(owner: $o, name: $r) {
-        issues(
-          first: 100
-          after: $cursor
-          filterBy: { since: $since }
-          states: [OPEN, CLOSED]
-        ) {
+        issues(first:100, after:$cursor, states:[OPEN, CLOSED]) {
           pageInfo {
             hasNextPage
             endCursor
@@ -114,11 +111,7 @@ def paginate_issues(owner, repo, since):
             state
             createdAt
             closedAt
-            labels(first: 15) {
-              nodes {
-                name
-              }
-            }
+            labels(first:15) { nodes { name } }
           }
         }
       }
@@ -127,7 +120,7 @@ def paginate_issues(owner, repo, since):
     items = []
     cur = None
     while True:
-        res = run_graphql(query, {"o": owner, "r": repo, "since": since, "cursor": cur})
+        res = run_graphql(query, {"o": owner, "r": repo, "cursor": cur})
         chunk = res["data"]["repository"]["issues"]
         items.extend(chunk["nodes"])
         if not chunk["pageInfo"]["hasNextPage"]:
@@ -136,16 +129,11 @@ def paginate_issues(owner, repo, since):
     return items
 
 
-def paginate_prs(owner, repo, since):
+def paginate_all_prs(owner, repo):
     query = """
-    query($o: String!, $r: String!, $since: String!, $cursor: String) {
+    query($o: String!, $r: String!, $cursor: String) {
       repository(owner: $o, name: $r) {
-        pullRequests(
-          first: 100
-          after: $cursor
-          filterBy: { since: $since }
-          states: [OPEN, CLOSED, MERGED]
-        ) {
+        pullRequests(first:100, after:$cursor, states:[OPEN, CLOSED, MERGED]) {
           pageInfo {
             hasNextPage
             endCursor
@@ -159,11 +147,7 @@ def paginate_prs(owner, repo, since):
             createdAt
             closedAt
             mergedAt
-            labels(first: 15) {
-              nodes {
-                name
-              }
-            }
+            labels(first:15) { nodes { name } }
           }
         }
       }
@@ -172,7 +156,7 @@ def paginate_prs(owner, repo, since):
     items = []
     cur = None
     while True:
-        res = run_graphql(query, {"o": owner, "r": repo, "since": since, "cursor": cur})
+        res = run_graphql(query, {"o": owner, "r": repo, "cursor": cur})
         chunk = res["data"]["repository"]["pullRequests"]
         items.extend(chunk["nodes"])
         if not chunk["pageInfo"]["hasNextPage"]:
@@ -182,15 +166,28 @@ def paginate_prs(owner, repo, since):
 
 
 def fetch_issues_and_prs(owner, repo, state_file: Path):
-    since = "2020-01-01T00:00:00Z"
+    since_str = "2020-01-01T00:00:00Z"
     if state_file.exists():
-        since = state_file.read_text().strip()
+        since_str = state_file.read_text().strip()
+    since_dt = datetime.fromisoformat(since_str.replace("Z", "+00:00"))
+
+    raw_issues = paginate_all_issues(owner, repo)
+    raw_prs = paginate_all_prs(owner, repo)
+
+    def filter_by_time(records):
+        out = []
+        for rec in records:
+            t = datetime.fromisoformat(rec["createdAt"].replace("Z", "+00:00"))
+            if t >= since_dt:
+                out.append(rec)
+        return out
+
+    filtered_issues = filter_by_time(raw_issues)
+    filtered_prs = filter_by_time(raw_prs)
 
     now_iso = datetime.utcnow().isoformat() + "Z"
-    issues = paginate_issues(owner, repo, since)
-    prs = paginate_prs(owner, repo, since)
     state_file.write_text(now_iso)
-    return issues, prs
+    return filtered_issues, filtered_prs
 
 
 for entry in REPOS:
@@ -211,4 +208,4 @@ for entry in REPOS:
     with open(out_dir / f"{prefix}_issues.json", "w", encoding="utf-8") as f:
         json.dump(issues, f, ensure_ascii=False, indent=2)
 
-print("fetch completed")
+print("fetch completed successfully")
