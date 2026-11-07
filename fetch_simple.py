@@ -8,9 +8,10 @@ TOKEN = os.environ["GH_PAT"]
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 GRAPHQL_URL = "https://api.github.com/graphql"
 
+# Correct repos
 REPOS = [
     {"owner": "rapidsai", "repo": "cucim"},
-    {"owner": "rapidsai", "repo": "hipcim"},
+    {"owner": "AMD-Ecosystem", "repo": "hipCIM"},
 ]
 
 BASE_DIR = Path(".")
@@ -78,9 +79,15 @@ def fetch_commits(owner, repo, state_file: Path):
     all_nodes = []
     cursor = None
     while True:
-        data = run_graphql(query, {"o": owner, "r": repo, "cursor": cursor})
-        ref_obj = data["data"]["repository"]["ref"]
+        try:
+            data = run_graphql(query, {"o": owner, "r": repo, "cursor": cursor})
+        except RuntimeError as e:
+            print(f"[WARN] fetch commits {owner}/{repo}: {e}")
+            return []
+        repo_obj = data["data"]["repository"]
+        ref_obj = repo_obj["ref"]
         if ref_obj is None:
+            print(f"[WARN] {owner}/{repo}: ref main not found")
             break
         hist = ref_obj["target"]["history"]
         all_nodes.extend(hist["nodes"])
@@ -198,6 +205,7 @@ for entry in REPOS:
     tip_path = STATE_DIR / f"{prefix}_tip.txt"
     since_path = STATE_DIR / f"{prefix}_since.txt"
 
+    print(f"==== Fetching {owner}/{repo} ====")
     commits = fetch_commits(owner, repo, tip_path)
     issues, prs = fetch_issues_and_prs(owner, repo, since_path)
 
