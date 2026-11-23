@@ -1,0 +1,128 @@
+[
+  {
+    "number": 1238,
+    "title": "Forward-merge release/26.12 into main",
+    "url": "https://github.com/rapidsai/cucim/pull/1238",
+    "body": "Forward-merge triggered by push to release/26.12 that creates a PR to keep main up-to-date. If this PR is unable to be immediately merged due to conflicts, it will remain open for the team to manually merge. See [forward-merger docs](https://docs.rapids.ai/maintainers/forward-merger/) for more info.",
+    "state": "MERGED",
+    "createdAt": "2026-11-18T20:18:22Z",
+    "closedAt": "2026-11-18T20:18:25Z",
+    "mergedAt": "2026-11-18T20:18:25Z",
+    "labels": {
+      "nodes": []
+    }
+  },
+  {
+    "number": 1239,
+    "title": "Add docs link preview",
+    "url": "https://github.com/rapidsai/cucim/pull/1239",
+    "body": "## Description\r\n\r\nAdd a `docs-preview` job to PR CI that posts a `docs-preview` commit status\r\nlinking to the docs built for the PR (NVIDIA VPN required to view).\r\n\r\nThe `docs-build` job's `docs-preview-urls` output (written by\r\n`rapids-upload-docs`) is passed to the shared\r\n`docs-preview-status.yaml` workflow. The new job is added to\r\n`ignored_pr_jobs` so it is not required by `pr-builder`.\r\n\r\nThis mirrors https://github.com/rapidsai/rmm/pull/2599.\r\nTowards: https://github.com/rapidsai/build-planning/issues/199\r\n",
+    "state": "MERGED",
+    "createdAt": "2026-11-18T22:00:56Z",
+    "closedAt": "2026-11-19T17:57:48Z",
+    "mergedAt": "2026-11-19T17:57:47Z",
+    "labels": {
+      "nodes": [
+        {
+          "name": "doc"
+        },
+        {
+          "name": "non-breaking"
+        }
+      ]
+    }
+  },
+  {
+    "number": 1240,
+    "title": "[Do not merge] issue 1159 - temporary ci diagnostics",
+    "url": "https://github.com/rapidsai/cucim/pull/1240",
+    "body": "Temporarily adding diagnostics:\r\n\r\nWhen a job times out, save its full log and attempt number. The log should contain a Python stack after two minutes and the last native trace events after the job timeout. The most useful clues are:\r\n\r\n- cuFile read starts and never returns. Check file I/O and GPU buffer registration.\r\n- nvJPEG returns an error and tile workers remain waiting. This matches the local reproduction. Rerun that configuration with c2da81cf to verify that the error reaches pytest promptly.\r\n- nvJPEG submission succeeds and CUDA stream synchronization never returns. Capture a native thread backtrace from the stalled worker before the job timeout, if the runner permits debugger attachment.\r\n",
+    "state": "CLOSED",
+    "createdAt": "2026-11-19T01:41:44Z",
+    "closedAt": "2026-11-20T04:12:07Z",
+    "mergedAt": null,
+    "labels": {
+      "nodes": [
+        {
+          "name": "bug"
+        },
+        {
+          "name": "non-breaking"
+        }
+      ]
+    }
+  },
+  {
+    "number": 1241,
+    "title": "Install CCCL via rapids-cmake",
+    "url": "https://github.com/rapidsai/cucim/pull/1241",
+    "body": "## Context\r\n\r\n#1197 uses CUB segmented sort functionality from Python via nanobind wrappers. This MR pulls the addition of the CCCL dependency out into its own standalone MR. The approach using rapids-cmake here was adapted by an agent from what is being done by other rapids projects (cuDF, cuML).\r\n\r\nNote that #1147 has also added CCCL dependency but is not using rapids-cmake.\r\n\r\nA follow-up MR could update other pre-existing dependencies to also install via rapids-cmake (`rapids_cpm_find`, etc).\r\n\r\n## Summary\r\n\r\nThis PR prepares the cuCIM Python build (`python/CMakeLists.txt`) for compiled CUDA extension\r\nmodules that use CUB/Thrust. It adds no such module and changes no `cucim.skimage` code: the\r\nexisting `_cucim` module builds as before, and every new packaging step does nothing until a\r\nmodule exists. The first user is the batch `regionprops` `intensity_median`, whose\r\n`cub::DeviceSegmentedSort` extension will follow in a separate PR.\r\n\r\nThe setup follows cudf, cuml and cuvs instead of adding cuCIM-specific mechanisms:\r\n\r\n- **rapids-cmake** is bootstrapped from the same `cmake/RAPIDS.cmake` and\r\n  `cmake/rapids_config.cmake` files those projects use.\r\n- **CCCL** comes from `rapids_cpm_cccl()` (currently CCCL 3.7.0), so every CUDA version builds\r\n  against the RAPIDS-pinned CCCL instead of the one bundled with the CUDA Toolkit.\r\n- **CUDA architectures** default to the RAPIDS list through `rapids_cuda_init_architectures`.\r\n- **Packaging:** compiled modules named `_cucim_skimage_<name>` are placed in the\r\n  `cucim.skimage` package by `./run build_local`, the conda recipe and the wheel build.\r\n\r\n## Changes\r\n\r\n### 1. Fetch the RAPIDS-pinned CCCL with rapids-cmake\r\n\r\n- `cmake/RAPIDS.cmake` is identical to cudf's, cuml's and cuvs's. `cmake/rapids_config.cmake`\r\n  matches cuml's (cudf's differs only in a variable name). It reads `VERSION` and the new\r\n  `RAPIDS_BRANCH` file (`main`) to choose the rapids-cmake branch.\r\n- `ci/release/update-version.sh` now writes `RAPIDS_BRANCH` (`main`, or `release/<version>` on\r\n  release branches), as cudf's does.\r\n- `python/CMakeLists.txt` includes `rapids_config.cmake` before `project()` and calls\r\n  `rapids_cpm_init()` and `rapids_cpm_cccl()`. No target links `CCCL::CCCL` yet. No export sets\r\n  are passed, so no CCCL install rules are generated.\r\n\r\n`rapids_cpm_cccl()` looks for the pinned version with `find_package(... EXACT)`, so an older CCCL\r\nfrom the toolkit is never picked up silently. `CCCL::CCCL` also carries the RAPIDS compile\r\ndefinitions, for example `CUB_DISABLE_NAMESPACE_MAGIC` and `THRUST_DISABLE_ABI_NAMESPACE`. This\r\nmatches cudf's `python/cudf/udf_cpp`, which also calls `rapids_cpm_cccl()` directly for a\r\nPython-side CUDA module.\r\n\r\n### 2. Enable CUDA in the Python extension build and select architectures\r\n\r\n- `project(cucim ... LANGUAGES CXX CUDA)`.\r\n- `rapids_cuda_init_architectures(cucim)` is called before `project()`, as in every cudf, cuml and\r\n  cuvs CMake project, including their Python ones. Builds default to the RAPIDS architecture list:\r\n  with rapids-cmake main this is `75-real;80-real;86-real;90a-real;100f-real;120a-real;120`.\r\n  `CUDAARCHS` or `CMAKE_CUDA_ARCHITECTURES` still override it; for example, `CUDAARCHS=NATIVE`\r\n  gives faster local builds. Without this call, nvcc would build only its default architecture.\r\n- CUDA uses the same standard (C++17) and symbol visibility (hidden) as the existing C++ settings.\r\n  With `CUB_DISABLE_NAMESPACE_MAGIC`, the CUB and libcu++ symbols a module instantiates are not\r\n  placed in a namespace unique to the module. Hiding them keeps them from interposing with other\r\n  CUB users in the same process, such as CuPy.\r\n\r\n### 3. Package compiled cucim.skimage extension modules\r\n\r\nA module whose target has `OUTPUT_NAME cucim/skimage/_cucim_skimage_<name>` (the same scheme as\r\n`cucim/_cucim`) and is listed in `INSTALL_TARGETS` is built as\r\n`lib/cucim/skimage/_cucim_skimage_<name>.abi3.so`. Until now, only `_cucim` was copied into the\r\nPython sources, so such a module would have been built and installed by CMake but missing from\r\nwheels and conda packages.\r\n\r\n- `python/CMakeLists.txt`: `install(TARGETS ${INSTALL_TARGETS} ...)` instead of only `cucim`, and\r\n  a comment describing the naming scheme.\r\n- `run` (`build_local`): copy `_cucim_skimage_*.abi3.so` into `src/cucim/skimage/` after removing\r\n  stale copies.\r\n- `conda/recipes/cucim/recipe.yaml`: the install step puts these modules next to `_cucim` in\r\n  `python/install/lib/`, which the recipe copies into `cucim/clara/`. The recipe now moves them\r\n  into `cucim/skimage/`.\r\n- `python/cucim/MANIFEST.in`: `include src/cucim/skimage/*.so*`. Without this line, setuptools\r\n  leaves the module out of the wheel.\r\n\r\nThe PR that adds the first module will also add:\r\n\r\n- static linking of the CUDA runtime (`CUDA::cudart_static`), as libcucim and its plugins do;\r\n- a `ci/validate_wheel.sh` check and a conda import test for that specific module;\r\n- any change to the wheel size limit its device code requires.\r\n\r\n## Testing\r\n\r\n- **CMake configure** of `python/` fetches rapids-cmake main and CCCL 3.7.0. The existing `_cucim`\r\n  module builds after each commit, using the libcucim from a local source build\r\n  (`CUCIM_SDK_PATH`).\r\n- **Throwaway probe module (not part of this PR).** A nanobind module that calls\r\n  `cub::DeviceReduce::Sum` and links `CCCL::CCCL` was added through `CMAKE_PROJECT_INCLUDE`:\r\n  - it reports `CUB_VERSION` 300700;\r\n  - it returns the correct sum on an RTX A6000;\r\n  - it contains SASS for sm_75, sm_80, sm_86, sm_90a, sm_100, sm_120 and sm_120a, plus sm_120 PTX;\r\n  - it exports no `cub::` or `cuda::std` symbols, only `PyInit_*` and nanobind's exception types.\r\n- **Packaging, in a scratch copy of the branch** with the probe built as\r\n  `_cucim_skimage_probe`:\r\n  - CMake put it at `lib/cucim/skimage/` and installed it at `python/install/lib/`.\r\n  - The new `run` and recipe snippets, run under `set -eu` and `set -euo pipefail`, moved it into\r\n    `src/cucim/skimage/`. Without a module they ran without errors and left nothing behind.\r\n  - `pip wheel` produced a wheel containing `cucim/skimage/_cucim_skimage_probe.abi3.so`. Without\r\n    the new `MANIFEST.in` line, the wheel did not contain it.\r\n- **pre-commit:** passes on each commit.\r\n\r\nNot run locally: the conda package and CI wheel builds.\r\n\r\n## Notes for reviewers\r\n\r\n- **Other dependencies.** cuCIM's other third-party dependencies (fmt, json, Catch2, Google\r\n  Benchmark, NVTX3 and others) are still fetched with `FetchContent`. Moving the ones rapids-cmake\r\n  supports is left for a follow-up.\n\n## References\n\nPartially addresses issues:\n\n* https://github.com/rapidsai/cucim/issues/627\n* https://github.com/rapidsai/cucim/issues/859",
+    "state": "OPEN",
+    "createdAt": "2026-11-19T20:02:47Z",
+    "closedAt": null,
+    "mergedAt": null,
+    "labels": {
+      "nodes": [
+        {
+          "name": "improvement"
+        },
+        {
+          "name": "non-breaking"
+        }
+      ]
+    }
+  },
+  {
+    "number": 1242,
+    "title": "Forward-merge release/26.12 into main",
+    "url": "https://github.com/rapidsai/cucim/pull/1242",
+    "body": "Forward-merge triggered by push to release/26.12 that creates a PR to keep main up-to-date. If this PR is unable to be immediately merged due to conflicts, it will remain open for the team to manually merge. See [forward-merger docs](https://docs.rapids.ai/maintainers/forward-merger/) for more info.",
+    "state": "MERGED",
+    "createdAt": "2026-11-19T23:12:27Z",
+    "closedAt": "2026-11-19T23:12:30Z",
+    "mergedAt": "2026-11-19T23:12:30Z",
+    "labels": {
+      "nodes": []
+    }
+  },
+  {
+    "number": 1243,
+    "title": "drop 'tomli' dependency",
+    "url": "https://github.com/rapidsai/cucim/pull/1243",
+    "body": "Contributes to https://github.com/rapidsai/build-planning/issues/352\n\nFrom Python 3.11 onwards, the Python standard library has TOML support via `tomllib`. The minimum supported python here is 3.12, so we can safely drop uses of the third-party library `tomli`.",
+    "state": "MERGED",
+    "createdAt": "2026-11-20T15:05:07Z",
+    "closedAt": "2026-11-20T16:18:48Z",
+    "mergedAt": "2026-11-20T16:18:47Z",
+    "labels": {
+      "nodes": [
+        {
+          "name": "improvement"
+        },
+        {
+          "name": "non-breaking"
+        }
+      ]
+    }
+  },
+  {
+    "number": 1244,
+    "title": "Fix POSIX GPU read completion and aligned `O_DIRECT` tail offsets",
+    "url": "https://github.com/rapidsai/cucim/pull/1244",
+    "body": "closes #1159\n\n\n## Summary\n\n- Wait for POSIX-staged GPU copies to complete before `CuFileDriver::pread` returns, including when a later read or copy fails and `pread` returns −1. When `cudaMemcpy` copies from pageable host memory to device memory, it blocks until CUDA has copied the bytes into staging memory. The DMA transfer to the GPU can still be pending when the call returns. The copy runs on the default stream, and legacy `cuslide` decodes on a separate nonblocking stream that can read the buffer before the copy completes. The wait runs only when the read issued a host-to-device copy, so host-buffer reads and `cuFileRead` are unchanged. [CUDA copy semantics](https://docs.nvidia.com/cuda/archive/13.0.3/cuda-runtime-api/api-sync-behavior.html) · [CUDA stream ordering](https://docs.nvidia.com/cuda/archive/13.0.3/cuda-runtime-api/stream-sync-behavior.html) · [RTX PRO 6000 hang (#1159)](https://github.com/rapidsai/cucim/issues/1159)\n- Include the requested file offset when reading or writing the final partial block of an aligned `O_DIRECT` request. Previously, the tail read and the write’s read-modify-write cycle could access the wrong page. [Failing wheel job](https://github.com/rapidsai/cucim/actions/runs/44598162516/job/135828091995)\n\n## Commits\n\n1. **Complete POSIX-staged GPU reads before returning.** Adds a default-stream wait before a successful `pread` returns after staging through host memory.\n2. **Honor file offsets in aligned `O_DIRECT` tail I/O.** Adds the requested file offset to the tail read and to the write's read-modify-write. New regressions cover reads and writes into page-aligned host buffers at offset 4,096, with and without a preceding full block.\n3. **Complete staged GPU reads on error returns.** Host-to-device copies go through one helper that records whether a copy was issued. Every return, including the −1 error returns, then waits for the default stream if one was. This keeps a failed read from returning while a copy into the caller's buffer is still in flight. `errno` is preserved across the wait.\n4. **Cover aligned `O_DIRECT` tails with device buffers.** Runs the same regressions with page-aligned CuPy buffers, which exercise the `cudaMemcpy` branches of both tail paths.\n\n## CI failures observed\n\n- **V100 Conda nightly.** The original #1159 report showed `test_batch_read_cuda_memory_cleanup` start without a result in two attempts. The third attempt passed. Its relationship to the RTX failures remains open. [V100 run](https://github.com/rapidsai/cucim/actions/runs/34933329900)\n- **RTX PRO 6000 Conda.** Full-suite runs stalled in two CUDA array-interface tests. `test_bindings_cuimage.py::test_cuda_array_interface` reads a crop, and `test_tiff_read_region.py::test_cuda_array_interface_support` reads the full tiled JPEG TIFF. The Python trace showed the binding test still inside `read_region()`. [Full-image run](https://github.com/rapidsai/cucim/actions/runs/43127852165) · [Crop run](https://github.com/rapidsai/cucim/actions/runs/44438840169/attempts/2)\n- **RTX PRO 6000 wheel.** `test_filesystem_roundtrip` requested 16 bytes at offset 4,096 and received bytes 0–15 from the first page. The buggy POSIX `O_DIRECT` tail path requires both the buffer and the file offset to be page-aligned. The file offset was already aligned, so the failure depended on whether NumPy placed the 16-byte destination buffer on a page boundary. A later wheel run stopped at 99% and reached its job limit. The progress output left the unfinished test unidentified. [Wrong-offset failure](https://github.com/rapidsai/cucim/actions/runs/44598162516/job/135828091995) · [Wheel timeout](https://github.com/rapidsai/cucim/actions/runs/44634044073/job/135952849923)\n\n## Investigation\n\n1. **Reproduce the hang with traces.** Diagnostics PR #1240 added pytest stack dumps and native phase markers, then repeated all three suspect CUDA tests 100 times each with eight workers. In the RTX hangs, legacy `cuslide` submitted the nvJPEG decode successfully. CUDA error 700 surfaced during stream synchronization, and loader teardown then waited on a tile worker until the job timed out. [Focused run](https://github.com/rapidsai/cucim/actions/runs/44531843818)\n2. **Isolate input delivery.** Buffered host staging passed with the same device-input decoder. Preloading nvJPEG `13.1.0.59` and `13.2.3.58` into the original CUDA 13.0.3 environment reproduced the hang. The first preload attempt stopped at archive extraction because `xz` was missing, and the completed preload runs confirmed the requested versions. [Host staging](https://github.com/rapidsai/cucim/actions/runs/44587757756) · [Preload setup](https://github.com/rapidsai/cucim/actions/runs/44598162516/job/135829521894) · [nvJPEG 13.1](https://github.com/rapidsai/cucim/actions/runs/44634044073/job/135954369089) · [nvJPEG 13.2](https://github.com/rapidsai/cucim/actions/runs/44652530122/job/136015095276)\n3. **Isolate synchronization.** I/O tracing identified the unaligned POSIX `O_DIRECT` fallback in the failed reads. After a blocking GPU readback, the compressed tile bytes matched a buffered reference read. A follow-up added just a default-stream wait before decode to isolate ordering from the readback and comparison. [Readback comparison](https://github.com/rapidsai/cucim/actions/runs/44657001737) · [Wait-only comparison](https://github.com/rapidsai/cucim/actions/runs/44663653775)\n4. **Reproduce the offset bug independently.** A page-aligned buffer and forced POSIX `O_DIRECT` reproduced the wheel failure locally. A corresponding partial write at offset 4,096 also changed the first page. Both tail paths used the length of the preceding full blocks as an absolute file offset. The regressions exercise reads and writes with and without a preceding full block. [Aligned tail read](https://github.com/rapidsai/cucim/blob/b712518854dc9a8f8a1a9d545d66248f4aa3a3c0/cpp/src/filesystem/cufile_driver.cpp#L565-L595) · [Aligned tail write](https://github.com/rapidsai/cucim/blob/b712518854dc9a8f8a1a9d545d66248f4aa3a3c0/cpp/src/filesystem/cufile_driver.cpp#L875-L915)\n\n## Validation\n\n- On RTX PRO 6000, the paired control reproduced seven CUDA 700 hangs. Adding a default-stream wait before decode passed all 300 trials. [Control](https://github.com/rapidsai/cucim/actions/runs/44663653775/job/136051412233) · [Wait-only job](https://github.com/rapidsai/cucim/actions/runs/44663653775/job/136051413509)\n- On the local RTX A6000, the `CuFileDriver` fix passed all 300 focused CUDA trials with POSIX fallback forced. A nonblocking CUDA consumer received the correct bytes across all five tested read paths.\n- With libcucim built from the branch tip `b438c19b` on an RTX A6000, all 28 tests in `test_bindings.py` passed, including all 14 filesystem tests. The eight aligned-tail regressions (four host-buffer, four CuPy) all failed on the build with only the wait. A separate probe with a page-aligned CuPy buffer also reproduced incorrect results in six reads and six writes at offset 4,096 on that build. All 12 cases passed with the offset fix.\n- **Error-path wait.** An `LD_PRELOAD` shim made the tail `pread` of an aligned `O_DIRECT` read return `EIO`, after the first block had been copied to a CuPy buffer. gdb breakpoints on libcucim's `cudaMemcpy` and `cudaStreamSynchronize` recorded the order of calls:\n  - **At the tip:** libcucim synchronized the default stream after the `EIO` and before `pread` returned −1.\n  - **Before commit 3:** `pread` returned −1 without waiting.\n- **Test exit.** The binding tests passed and exited cleanly in repeated local runs:\n  - 42 runs with plain pytest;\n  - 11 runs with the CI command (eight xdist workers plus coverage).\n- **CI before commits 3 and 4.** The copy-completion fix passed all 300 focused trials in normal device-read mode on RTX PRO 6000. The log confirms successful waits in the unaligned `O_DIRECT` fallback. All 33 jobs passed in this diagnostics run at `e92fbd6a`, which tested the success-path wait alone. The branch tip `b438c19b` includes all four commits and still needs its own CI run. [Focused Conda job](https://github.com/rapidsai/cucim/actions/runs/44669440234/job/136070440299) · [Full run](https://github.com/rapidsai/cucim/actions/runs/44669440234)\n\n## Not in this PR\n\nStaged GPU reads that extend past end-of-file can loop forever: the copy loops make no progress when `::pread` returns 0. In addition, the aligned tail reports bytes past end-of-file as read. This behavior predates this PR and is not related to the #1159 traces. A separate follow-up change can be made for that issue.\n\n## Cost of the wait\n\nThe added synchronization waits for any DMA still pending on the default stream. With concurrent tile workers, it can also wait for copies that another worker queued on that stream.\n\nAn exploratory RTX A6000 benchmark timed a POSIX fallback read followed by a readback on a nonblocking stream. Across three alternating runs per build, the timings showed no consistent change. The run-to-run variation was too large to resolve a small cost.\n\n| Read size | Baseline (µs per read and readback) | With the wait (µs per read and readback) |\n| --- | ---: | ---: |\n| 2,862 B | 93–188 | 77–193 |\n| 1,844,293 B | 3,270–3,340 | 3,180–3,492 |\n",
+    "state": "OPEN",
+    "createdAt": "2026-11-20T15:35:07Z",
+    "closedAt": null,
+    "mergedAt": null,
+    "labels": {
+      "nodes": [
+        {
+          "name": "bug"
+        },
+        {
+          "name": "non-breaking"
+        }
+      ]
+    }
+  }
+]
